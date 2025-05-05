@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>MiniGeo - Educational Interactive Geometry & Graphs</title>
+<style>
+  /* Reset & base */
+  * {
+    box-sizing: border-box;
+  }
+  body, html {
+    margin:0; padding:0;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #1e1e2f;
+    color: #eee;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    background: #27293d;
+    padding: 0.75em 1em;
+    text-align: center;
+    font-weight: 700;
+    font-size: 1.25rem;
+    user-select:none;
+  }
+
+  main {
+    flex: 1;
+    display: flex;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  #sidebar {
+    width: 280px;
+    background: #2a2c43;
+    border-right: 2px solid #444661;
+    display: flex;
+    flex-direction: column;
+    padding: 1em 1em 0 1em;
+  }
+  #sidebar h2 {
+    font-size: 1.1rem;
+    margin-bottom: 0.6em;
+    color: #88c0d0;
+  }
+  label {
+    margin-top: 1em;
+    font-weight: 600;
+    font-size: 0.95rem;
+    display: block;
+  }
+  input[type="text"], input[type="number"] {
+    width: 100%;
+    padding: 0.4em 0.6em;
+    margin-top: 0.3em;
+    border-radius: 4px;
+    border: none;
+    font-size: 1rem;
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  button {
+    margin-top: 1.2em;
+    background: #88c0d0;
+    color: #1e1e2f;
+    font-weight: 700;
+    border:none;
+    padding: 0.6em 1em;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.25s ease;
+  }
+  button:hover {
+    background: #5a9dbf;
+  }
+
+  #canvas-container {
+    flex: 1;
+    position: relative;
+    background: #161624;
+  }
+
+  canvas {
+    position: absolute;
+    height: 100%;
+    width: 100%;
+    display: block;
+    touch-action: none;
+  }
+  
+  #info {
+    margin-top: auto;
+    font-size: 0.8rem;
+    color: #8899aa;
+    user-select:none;
+    padding-bottom: 1em;
+  }
+
+  /* Responsive for smaller/mobile devices */
+  @media (max-width: 480px) {
+    #sidebar {
+      width: 100%;
+      height: 220px;
+      border-right: none;
+      border-bottom: 2px solid #444661;
+      padding-bottom: 0.5em;
+    }
+    main {
+      flex-direction: column-reverse;
+    }
+    #canvas-container {
+      height: calc(100% - 220px);
+    }
+  }
+</style>
+</head>
+<body>
+<header>MiniGeo: Interactive Geometry & Function Plotter</header>
+<main>
+  <aside id="sidebar" aria-label="Controls">
+    <h2>Geometry Tools</h2>
+    <button id="add-point-btn" aria-pressed="false" aria-label="Add a movable point">Add Point</button>
+    <button id="add-line-btn" aria-pressed="false" aria-label="Add a line between two points">Add Line</button>
+    <button id="add-circle-btn" aria-pressed="false" aria-label="Add circle from two points">Add Circle</button>
+
+
+    <h2>Function Plotter</h2>
+    <label for="function-input">f(x) =</label>
+    <input type="text" id="function-input" placeholder="e.g. sin(x), x^2 + 3*x -5" aria-label="Function input" />
+    <button id="plot-func-btn">Plot Function</button>
+    <button id="clear-func-btn">Clear Functions</button>
+
+    <div id="info" aria-live="polite" aria-atomic="true">
+      <p>Instructions: Use the buttons above to add points, lines, and circles. Drag points to move them.</p>
+      <p>For lines and circles, select two points by clicking them. Selected points are highlighted in red.</p>
+      <p>Plot functions using common math expressions with operators + - * / ^ and math functions sin(), cos(), etc.</p>
+      <p id="selection-info" style="color:#bf616a; font-weight:600;"></p>
+    </div>
+  </aside>
+  <section id="canvas-container" role="img" aria-label="Interactive geometry and graphing canvas">
+    <canvas id="geo-canvas" tabindex="0"></canvas>
+  </section>
+</main>
+<script>
+(() => {
+  const canvas = document.getElementById('geo-canvas');
+  const ctx = canvas.getContext('2d');
+  // Geometry objects storage
+  let points = [];
+  let lines = [];
+  let circles = [];
+  let functions = [];
+
+  // State for interaction
+  let mode = null;  // 'point', 'line', 'circle', 'drag-point', null
+  let draggingPointIndex = -1;
+  let selectedPointsForLine = [];
+  let selectedPointsForCircle = [];
+
+  // Viewport params
+  let view = {
+    originX: 0,
+    originY: 0,
+    scale: 40 // pixels per unit
+  };
+
+  // Dimensions and setup
+  function resizeCanvas() {
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+    draw();
+  }
+
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  // Convert between coordinate systems (math to canvas pixels)
+  function toCanvasX(x) {
+    return canvas.width / 2 + (x - view.originX) * view.scale;
+  }
+  function toCanvasY(y) {
+    return canvas.height / 2 - (y - view.originY) * view.scale;
+  }
+  function toMathX(canvasX) {
+    return (canvasX - canvas.width / 2) / view.scale + view.originX;
+  }
+  function toMathY(canvasY) {
+    return (canvas.height / 2 - canvasY) / view.scale + view.originY;
+  }
+
+  // Drawing helpers
+  function drawPoint(pt, highlight=false) {
+    const x = toCanvasX(pt.x);
+    const y = toCanvasY(pt.y);
+    ctx.beginPath();
+    ctx.fillStyle = highlight ? '#bf616a' : '#88c0d0';
+    ctx.strokeStyle = '#2e3440';
+    ctx.lineWidth = 2;
+    ctx.arc(x, y, 7, 0, Math.PI*2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Draw coordinates label
+    ctx.font = '12px Segoe UI, sans-serif';
+    ctx.fillStyle = '#d8dee9';
+    ctx.textAlign = 'center';
+    ctx.fillText(`(${pt.x.toFixed(2)}, ${pt.y.toFixed(2)})`, x, y - 12);
+  }
+
+  function drawLine(line) {
+    if (line.p1Index < 0 || line.p1Index >= points.length || line.p2Index < 0 || line.p2Index >= points.length) {
+      return;
+    }
+    const p1 = points[line.p1Index];
+    const p2 = points[line.p2Index];
+    const x1 = toCanvasX(p1.x);
+    const y1 = toCanvasY(p1.y);
+    const x2 = toCanvasX(p2.x);
+    const y2 = toCanvasY(p2.y);
+
+    ctx.beginPath();
+    ctx.strokeStyle = '#81a1c1';
+    ctx.lineWidth = 2;
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  function drawCircle(circle) {
+    if (circle.centerIndex < 0 || circle.centerIndex >= points.length || circle.pointOnCircIndex < 0 || circle.pointOnCircIndex >= points.length) {
+      return;
+    }
+    const center = points[circle.centerIndex];
+    const pointOnCirc = points[circle.pointOnCircIndex];
+    const cx = toCanvasX(center.x);
+    const cy = toCanvasY(center.y);
+
+    const radius = Math.sqrt(
+      Math.pow(toCanvasX(pointOnCirc.x) - cx,2) +
+      Math.pow(toCanvasY(pointOnCirc.y) - cy,2)
+    );
+
+    ctx.beginPath();
+    ctx.strokeStyle = '#bf616a';
+    ctx.lineWidth = 2;
+    ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+    ctx.stroke();
+  }
+
+  function drawGrid() {
+    const step = 1;
+    const gridColor = '#3b4252';
+    const labelColor = '#4c566a';
+    ctx.lineWidth = 1;
+
+    // Vertical lines
+    const leftX = toMathX(0);
+    const rightX = toMathX(canvas.width);
+    const topY = toMathY(canvas.height);
+    const bottomY = toMathY(0);
+
+    // Draw vertical grid lines
+    for(let x = Math.floor(leftX); x <= Math.ceil(rightX); x += step) {
+      const cx = toCanvasX(x);
+      ctx.beginPath();
+      ctx.strokeStyle = gridColor;
+      ctx.moveTo(cx,0);
+      ctx.lineTo(cx,canvas.height);
+      ctx.stroke();
+
+      if(x !== 0) {
+        ctx.font = '10px Segoe UI, sans-serif';
+        ctx.fillStyle = labelColor;
+        ctx.textAlign = 'center';
+        ctx.fillText(x, cx, canvas.height / 2 + 12);
+      }
+    }
+
+    // Draw horizontal grid lines
+    for(let y = Math.floor(bottomY); y <= Math.ceil(topY); y += step) {
+      const cy = toCanvasY(y);
+      ctx.beginPath();
+      ctx.strokeStyle = gridColor;
+      ctx.moveTo(0, cy);
+      ctx.lineTo(canvas.width, cy);
+      ctx.stroke();
+
+      if(y !== 0) {
+        ctx.font = '10px Segoe UI, sans-serif';
+        ctx.fillStyle = labelColor;
+        ctx.textAlign = 'right';
+        ctx.fillText(y, canvas.width / 2 - 6, cy + 3);
+      }
+    }
+
+    // Draw axis lines
+    const originX = toCanvasX(0);
+    const originY = toCanvasY(0);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#d8dee9';
+
+    // Y axis
+    ctx.beginPath();
+    ctx.moveTo(originX, 0);
+    ctx.lineTo(originX, canvas.height);
+    ctx.stroke();
+
+    // X axis
+    ctx.beginPath();
+    ctx.moveTo(0, originY);
+    ctx.lineTo(canvas.width, originY);
+    ctx.stroke();
+  }
+
+  // Function parser using math.js style limited parser (implemented manually for essentials)
+  // Allowed tokens: numbers, x, + - * / ^, sin cos tan log exp sqrt, parentheses
+  // For safety, use a simple Function constructor with validation.
+
+  // Quick function parser helper:
+  function parseFunction(expr) {
+    // Sanitize input: only allow defined characters and words
+    if (!expr.match(/^[0-9xX+\-*/^()., sincoatlgeqrp]+$/i)) {
+      throw new Error('Invalid characters in function expression.');
+    }
+
+    // Replace ^ with **
+    let jsExpr = expr.toLowerCase().replace(/\^/g, '**');
+
+    // Replace math functions with Math.*
+    jsExpr = jsExpr.replace(/sin/g, 'Math.sin')
+                   .replace(/cos/g, 'Math.cos')
+                   .replace(/tan/g, 'Math.tan')
+                   .replace(/log/g, 'Math.log')
+                   .replace(/exp/g, 'Math.exp')
+                   .replace(/sqrt/g, 'Math.sqrt')
+                   .replace(/abs/g, 'Math.abs');
+
+    // Return a function of x that evaluates the expression
+    return new Function('x', 'return ' + jsExpr + ';');
+  }
+
+  // Draw function graph
+  function drawFunction(fn) {
+    ctx.beginPath();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#a3be8c';
+
+    const stepPx = 2;
+    let first = true;
+    for(let px = 0; px <= canvas.width; px += stepPx) {
+      const x = toMathX(px);
+      let y;
+      try {
+        y = fn(x);
+        if (typeof y !== 'number' || isNaN(y) || !isFinite(y)) {
+          first = true;
+          continue;
+        }
+      } catch {
+        first = true;
+        continue;
+      }
+      const py = toCanvasY(y);
+      if (first) {
+        ctx.moveTo(px, py);
+        first = false;
+      } else {
+        ctx.lineTo(px, py);
+      }
+    }
+    ctx.stroke();
+  }
+
+  // Draw all elements
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawGrid();
+
+    // Draw functions first (underneath geometry)
+    for (const fn of functions) {
+      drawFunction(fn);
+    }
+
+    // Draw circles
+    for (const circle of circles) {
+      drawCircle(circle);
+    }
+    // Draw lines
+    for (const line of lines) {
+      drawLine(line);
+    }
+    // Draw points
+    for (let i=0; i < points.length; i++) {
+      const isSelectedForLine = selectedPointsForLine.includes(i) && mode === 'line';
+      const isSelectedForCircle = selectedPointsForCircle.includes(i) && mode === 'circle';
+      drawPoint(points[i], isSelectedForLine || isSelectedForCircle);
+    }
+  }
+
+  // Find point near canvas coordinates (within radius)
+  function findPointNearCanvas(x, y) {
+    const radius = 14;
+    for (let i = 0; i < points.length; i++) {
+      const ptC = { x: toCanvasX(points[i].x), y: toCanvasY(points[i].y) };
+      const distSq = (ptC.x - x) ** 2 + (ptC.y - y) ** 2;
+      if (distSq <= radius * radius) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  // Mouse/touch handlers for canvas
+  function onPointerDown(event) {
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = (event.clientX || event.touches[0].clientX) - rect.left;
+    const canvasY = (event.clientY || event.touches[0].clientY) - rect.top;
+
+    if (mode === 'point') {
+      // Add new point at clicked position in math coords
+      const mx = toMathX(canvasX);
+      const my = toMathY(canvasY);
+      points.push({x: mx, y: my});
+      mode = null;
+      updateModeButtons();
+      updateSelectionInfo('');
+      draw();
+      return;
+    }
+
+    if (mode === 'line') {
+      // Select points
+      let idx = findPointNearCanvas(canvasX, canvasY);
+      if (idx !== -1 && !selectedPointsForLine.includes(idx)) {
+        selectedPointsForLine.push(idx);
+        updateSelectionInfo(`Selected points for line: ${selectedPointsForLine.length}/2`);
+        if (selectedPointsForLine.length === 2) {
+          lines.push({p1Index: selectedPointsForLine[0], p2Index: selectedPointsForLine[1]});
+          selectedPointsForLine = [];
+          mode = null;
+          updateModeButtons();
+          updateSelectionInfo('Line added');
+        }
+        draw();
+      }
+      return;
+    }
+
+    if (mode === 'circle') {
+      let idx = findPointNearCanvas(canvasX, canvasY);
+      if (idx !== -1 && !selectedPointsForCircle.includes(idx)) {
+        selectedPointsForCircle.push(idx);
+        updateSelectionInfo(`Selected points for circle: ${selectedPointsForCircle.length}/2`);
+        if (selectedPointsForCircle.length === 2) {
+          circles.push({centerIndex: selectedPointsForCircle[0], pointOnCircIndex: selectedPointsForCircle[1]});
+          selectedPointsForCircle = [];
+          mode = null;
+          updateModeButtons();
+          updateSelectionInfo('Circle added');
+        }
+        draw();
+      }
+      return;
+    }
+
+    // No active mode: try to drag point if clicked near
+    let idx = findPointNearCanvas(canvasX, canvasY);
+    if(idx !== -1) {
+      draggingPointIndex = idx;
+    }
+  }
+
+  function onPointerMove(event) {
+    if(draggingPointIndex === -1) return;
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = (event.clientX || event.touches[0].clientX) - rect.left;
+    const canvasY = (event.clientY || event.touches[0].clientY) - rect.top;
+    const mx = toMathX(canvasX);
+    const my = toMathY(canvasY);
+    points[draggingPointIndex].x = mx;
+    points[draggingPointIndex].y = my;
+    draw();
+  }
+
+  function onPointerUp(event) {
+    if (draggingPointIndex !== -1) {
+      draggingPointIndex = -1;
+      draw();
+    }
+  }
+
+  canvas.addEventListener('pointerdown', onPointerDown);
+  canvas.addEventListener('pointermove', onPointerMove);
+  canvas.addEventListener('pointerup', onPointerUp);
+  canvas.addEventListener('pointerleave', onPointerUp);
+
+  // Buttons and inputs
+  const btnAddPoint = document.getElementById('add-point-btn');
+  const btnAddLine = document.getElementById('add-line-btn');
+  const btnAddCircle = document.getElementById('add-circle-btn');
+  const btnClearGeometry = document.createElement('button');
+  btnClearGeometry.id = 'clear-geometry-btn';
+  btnClearGeometry.textContent = 'Clear Geometry';
+  btnClearGeometry.setAttribute('aria-label', 'Clear all geometry (points, lines, circles)');
+  document.getElementById('sidebar').insertBefore(btnClearGeometry, document.querySelector('#sidebar h2:nth-of-type(2)'));
+
+  const inpFunction = document.getElementById('function-input');
+  const btnPlotFunc = document.getElementById('plot-func-btn');
+  const btnClearFunc = document.getElementById('clear-func-btn');
+  const selectionInfo = document.getElementById('selection-info');
+
+  function updateModeButtons() {
+    btnAddPoint.setAttribute('aria-pressed', mode === 'point' ? 'true' : 'false');
+    btnAddLine.setAttribute('aria-pressed', mode === 'line' ? 'true' : 'false');
+    btnAddCircle.setAttribute('aria-pressed', mode === 'circle' ? 'true' : 'false');
+  }
+
+  function updateSelectionInfo(text) {
+    selectionInfo.textContent = text;
+  }
+
+  btnAddPoint.addEventListener('click', () => {
+    if(mode === 'point') {
+      mode = null;
+      updateSelectionInfo('');
+    } else {
+      mode = 'point';
+      selectedPointsForLine = [];
+      selectedPointsForCircle = [];
+      updateSelectionInfo('Click to add a point');
+    }
+    updateModeButtons();
+  });
+
+  btnAddLine.addEventListener('click', () => {
+    if(mode === 'line') {
+      mode = null;
+      selectedPointsForLine = [];
+      updateSelectionInfo('');
+    } else {
+      mode = 'line';
+      selectedPointsForLine = [];
+      selectedPointsForCircle = [];
+      updateSelectionInfo('Select two points for the line by clicking them');
+    }
+    updateModeButtons();
+  });
+
+  btnAddCircle.addEventListener('click', () => {
+    if(mode === 'circle') {
+      mode = null;
+      selectedPointsForCircle = [];
+      updateSelectionInfo('');
+    } else {
+      mode = 'circle';
+      selectedPointsForCircle = [];
+      selectedPointsForLine = [];
+      updateSelectionInfo('Select two points for the circle by clicking them');
+    }
+    updateModeButtons();
+  });
+
+  btnClearGeometry.addEventListener('click', () => {
+    points = [];
+    lines = [];
+    circles = [];
+    selectedPointsForLine = [];
+    selectedPointsForCircle = [];
+    mode = null;
+    updateSelectionInfo('Geometry cleared');
+    updateModeButtons();
+    draw();
+  });
+
+  btnPlotFunc.addEventListener('click', () => {
+    let expr = inpFunction.value.trim();
+    if(expr.length === 0) {
+      alert('Please enter a function expression.');
+      return;
+    }
+    try {
+      const fn = parseFunction(expr);
+      functions.push(fn);
+      inpFunction.value = '';
+      draw();
+    } catch(e) {
+      alert('Invalid function expression: ' + e.message);
+    }
+  });
+
+  btnClearFunc.addEventListener('click', () => {
+    functions = [];
+    draw();
+  });
+
+  draw();
+})();
+</script>
+</body>
+</html>
+
+
