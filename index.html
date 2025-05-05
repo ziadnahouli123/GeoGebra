@@ -261,7 +261,14 @@
   let selectedPointIndex = -1;
 
   function saveHistory() {
-    const snapshot = JSON.stringify({points,lines,circles,polygons,functions});
+    // Serialize deep copy to handle object references correctly
+    const snapshot = JSON.stringify({
+      points: points.map(p => ({x: p.x, y: p.y, label: p.label})),
+      lines: lines.map(l => ({p1Index: l.p1Index, p2Index: l.p2Index})),
+      circles: circles.map(c => ({centerIndex: c.centerIndex, pointOnCircIndex: c.pointOnCircIndex})),
+      polygons: polygons.map(pg => ({pointIndices: [...pg.pointIndices]})),
+      functions: functions.map(f => ({expr: f.expr, color: f.color}))
+    });
     if(historyIndex < history.length-1) history.splice(historyIndex+1);
     history.push(snapshot);
     historyIndex++;
@@ -274,7 +281,15 @@
     lines = snapshot.lines;
     circles = snapshot.circles;
     polygons = snapshot.polygons;
-    functions = snapshot.functions;
+    functions = [];
+    for(const f of snapshot.functions){
+      try {
+        const fn = parseFunction(f.expr);
+        functions.push({expr: f.expr, fn, color: f.color});
+      } catch {
+        // skip invalid functions in history (should rarely happen)
+      }
+    }
     mode = null;
     selectedPointsForLine = [];
     selectedPointsForCircle = [];
@@ -709,7 +724,11 @@
   }
 
   function updateCoordInputs(){
-    if(selectedPointIndex === -1) return;
+    if(selectedPointIndex === -1) {
+      coordXInput.value = '';
+      coordYInput.value = '';
+      return;
+    }
     const p = points[selectedPointIndex];
     coordXInput.value = p.x.toFixed(3);
     coordYInput.value = p.y.toFixed(3);
@@ -877,17 +896,6 @@
 
   function updateSelectionInfo(text){
     selectionInfo.textContent = text;
-  }
-
-  function updateCoordInputs(){
-    if(selectedPointIndex === -1){
-      coordXInput.value = '';
-      coordYInput.value = '';
-      return;
-    }
-    const p = points[selectedPointIndex];
-    coordXInput.value = p.x.toFixed(3);
-    coordYInput.value = p.y.toFixed(3);
   }
 
   saveHistory();
