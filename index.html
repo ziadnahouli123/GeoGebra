@@ -66,6 +66,8 @@
     border: none;
     font-size: 1rem;
     font-family: monospace;
+    background: #3b4252;
+    color: #eee;
   }
   input[type="number"]::-webkit-inner-spin-button,
   input[type="number"]::-webkit-outer-spin-button {
@@ -140,6 +142,54 @@
     border: 1.5px solid #2e3440;
   }
 
+  /* New styling for add point coordinate input UI */
+  #point-input-container {
+    margin-top: 1em;
+    padding: 0.7em 1em;
+    background-color: #3b4252;
+    border-radius: 6px;
+    display: none;
+    flex-direction: column;
+    user-select:none;
+  }
+  #point-input-container label {
+    font-weight: 600;
+    margin-top: 0;
+    margin-bottom: 0.1em;
+    font-size: 0.95rem;
+  }
+  #point-input-container input {
+    margin-top: 0;
+  }
+  #add-point-confirm-btn {
+    margin-top: 0.8em;
+    background: #a3be8c;
+    color: #1e1e2f;
+    font-weight: 700;
+    border: none;
+    padding: 0.5em 1em;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.25s ease;
+    user-select:none;
+  }
+  #add-point-confirm-btn:hover {
+    background: #8fae73;
+  }
+
+  /* Adjust geometry tools buttons layout for better grouping */
+  #geometry-tool-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5em;
+  }
+  #geometry-tool-buttons button {
+    flex: 1 1 calc(50% - 0.5em);
+    margin-top: 0;
+    font-size: 0.9rem;
+    min-width: 120px;
+  }
+
   @media (max-width: 480px) {
     #sidebar {
       width: 100%;
@@ -155,6 +205,13 @@
     #canvas-container {
       height: calc(100% - 320px);
     }
+    #geometry-tool-buttons button {
+      flex: 1 1 100%;
+      min-width: auto;
+    }
+    #point-input-container {
+      padding: 0.5em 0.7em;
+    }
   }
 </style>
 </head>
@@ -163,10 +220,22 @@
 <main>
   <aside id="sidebar" aria-label="Controls">
     <h2>Geometry Tools</h2>
-    <button id="add-point-btn" aria-pressed="false" aria-label="Add a movable point">Add Point</button>
-    <button id="add-line-btn" aria-pressed="false" aria-label="Add a line between two points">Add Line</button>
-    <button id="add-circle-btn" aria-pressed="false" aria-label="Add a circle from two points">Add Circle</button>
-    <button id="add-polygon-btn" aria-pressed="false" aria-label="Add a polygon by selecting points">Add Polygon</button>
+    <div id="geometry-tool-buttons">
+      <button id="add-point-btn" aria-pressed="false" aria-label="Add a movable point">Add Point</button>
+      <button id="add-line-btn" aria-pressed="false" aria-label="Add a line between two points">Add Line</button>
+      <button id="add-circle-btn" aria-pressed="false" aria-label="Add a circle from two points">Add Circle</button>
+      <button id="add-polygon-btn" aria-pressed="false" aria-label="Add a polygon by selecting points">Add Polygon</button>
+      <button id="add-segment-btn" aria-pressed="false" aria-label="Add a segment between two points">Add Segment</button>
+    </div>
+
+    <div id="point-input-container" aria-live="polite" aria-atomic="true">
+      <label for="point-x-input">X coordinate:</label>
+      <input type="number" id="point-x-input" step="0.01" aria-label="X coordinate for new point" />
+      <label for="point-y-input">Y coordinate:</label>
+      <input type="number" id="point-y-input" step="0.01" aria-label="Y coordinate for new point" />
+      <button id="add-point-confirm-btn">Add Point</button>
+    </div>
+
     <button id="undo-btn" aria-label="Undo last action" disabled>Undo</button>
     <button id="redo-btn" aria-label="Redo last undone action" disabled>Redo</button>
     <button id="clear-geometry-btn" aria-label="Clear all geometry">Clear Geometry</button>
@@ -198,7 +267,7 @@
     </div>
   </aside>
   <section id="canvas-container" role="img" aria-label="Interactive geometry and graphing canvas">
-    <canvas id="geo-canvas" tabindex="0"></canvas>
+    <canvas id="geo-canvas" tabindex="0" aria-label="Geometry and function plotting canvas"></canvas>
   </section>
 </main>
 <script>
@@ -223,6 +292,7 @@
   let lines = [];
   let circles = [];
   let polygons = [];
+  let segments = [];
   let functions = [];
 
   let mode = null;
@@ -230,9 +300,10 @@
   let selectedPointsForLine = [];
   let selectedPointsForCircle = [];
   let selectedPointsForPolygon = [];
+  let selectedPointsForSegment = [];
 
   let pan = {x:0, y:0};
-  let zoom = 15; // Set initial zoom lower to show more area and allow easier placement
+  let zoom = 15;
   let draggingCanvas = false;
   let dragStart = null;
 
@@ -243,6 +314,7 @@
   const btnAddLine = document.getElementById('add-line-btn');
   const btnAddCircle = document.getElementById('add-circle-btn');
   const btnAddPolygon = document.getElementById('add-polygon-btn');
+  const btnAddSegment = document.getElementById('add-segment-btn');
   const btnUndo = document.getElementById('undo-btn');
   const btnRedo = document.getElementById('redo-btn');
   const btnClearGeometry = document.getElementById('clear-geometry-btn');
@@ -258,15 +330,20 @@
   const updatePointBtn = document.getElementById('update-point-btn');
   const selectionInfo = document.getElementById('selection-info');
 
+  const pointInputContainer = document.getElementById('point-input-container');
+  const pointXInput = document.getElementById('point-x-input');
+  const pointYInput = document.getElementById('point-y-input');
+  const addPointConfirmBtn = document.getElementById('add-point-confirm-btn');
+
   let selectedPointIndex = -1;
 
   function saveHistory() {
-    // Serialize deep copy to handle object references correctly
     const snapshot = JSON.stringify({
       points: points.map(p => ({x: p.x, y: p.y, label: p.label})),
       lines: lines.map(l => ({p1Index: l.p1Index, p2Index: l.p2Index})),
       circles: circles.map(c => ({centerIndex: c.centerIndex, pointOnCircIndex: c.pointOnCircIndex})),
       polygons: polygons.map(pg => ({pointIndices: [...pg.pointIndices]})),
+      segments: segments.map(s => ({p1Index: s.p1Index, p2Index: s.p2Index})),
       functions: functions.map(f => ({expr: f.expr, color: f.color}))
     });
     if(historyIndex < history.length-1) history.splice(historyIndex+1);
@@ -281,6 +358,7 @@
     lines = snapshot.lines;
     circles = snapshot.circles;
     polygons = snapshot.polygons;
+    segments = snapshot.segments || [];
     functions = [];
     for(const f of snapshot.functions){
       try {
@@ -294,6 +372,7 @@
     selectedPointsForLine = [];
     selectedPointsForCircle = [];
     selectedPointsForPolygon = [];
+    selectedPointsForSegment = [];
     selectedPointIndex = -1;
     updateSelectionInfo('');
     updateCoordInputs();
@@ -396,26 +475,130 @@
     const p1 = points[line.p1Index];
     const p2 = points[line.p2Index];
     if(!p1 || !p2) return;
+
+    // Draw infinite line across canvas - extend beyond points
+
+    const canvasWidth = canvas.width / (window.devicePixelRatio || 1);
+    const canvasHeight = canvas.height / (window.devicePixelRatio || 1);
+
+    const x1 = p1.x;
+    const y1 = p1.y;
+    const x2 = p2.x;
+    const y2 = p2.y;
+
+    // Compute slope
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+
+    // Infinite line: find intersection with canvas borders in world coords
+
+    // Line equation: y = m x + b if dx !=0 else vertical line x = x1
+
+    let linePoints = [];
+
+    if(Math.abs(dx) < 1e-10){
+      // Vertical line x = x1
+      // intersect with canvas top and bottom  y = min and y = max
+      const yMin = toMathY(canvasHeight);
+      const yMax = toMathY(0);
+      linePoints = [{x:x1, y:yMin}, {x:x1, y:yMax}];
+    } else {
+      const m = dy / dx;
+      const b = y1 - m*x1;
+
+      // Calculate intersections with viewport boundaries in world coords
+      // Left border x = leftX, y = m*leftX + b
+      // Right border x = rightX, y = m*rightX + b
+      // Top border y = topY, x = (topY - b) / m
+      // Bottom border y = bottomY, x = (bottomY - b) / m
+
+      const leftX = toMathX(0);
+      const rightX = toMathX(canvasWidth);
+      const topY = toMathY(0);
+      const bottomY = toMathY(canvasHeight);
+
+      // y at left and right
+      let yLeft = m*leftX + b;
+      let yRight = m*rightX + b;
+
+      // x at top and bottom
+      let xTop = (topY - b)/m;
+      let xBottom = (bottomY - b)/m;
+
+      let candidates = [];
+
+      // Check which intersection points are within viewport bounds
+
+      if(yLeft >= bottomY && yLeft <= topY){
+        candidates.push({x:leftX, y:yLeft});
+      }
+      if(yRight >= bottomY && yRight <= topY){
+        candidates.push({x:rightX, y:yRight});
+      }
+      if(xTop >= leftX && xTop <= rightX){
+        candidates.push({x:xTop, y:topY});
+      }
+      if(xBottom >= leftX && xBottom <= rightX){
+        candidates.push({x:xBottom, y:bottomY});
+      }
+
+      // We expect at least 2 intersection points, take first two
+      if(candidates.length >= 2){
+        linePoints = [candidates[0], candidates[1]];
+      } else {
+        // Fallback: draw segment between the two points only
+        linePoints = [p1, p2];
+      }
+    }
+
+    const cx1 = toCanvasX(linePoints[0].x);
+    const cy1 = toCanvasY(linePoints[0].y);
+    const cx2 = toCanvasX(linePoints[1].x);
+    const cy2 = toCanvasY(linePoints[1].y);
+
+    ctx.beginPath();
+    ctx.strokeStyle = '#81a1c1';
+    ctx.lineWidth = 2;
+    ctx.moveTo(cx1, cy1);
+    ctx.lineTo(cx2, cy2);
+    ctx.stroke();
+
+    // Draw equation centered at midpoint between p1 and p2 (not infinite line midpoint)
+    const eqText = getLineEquation(p1, p2);
+    if(eqText){
+      const mx = (toCanvasX(p1.x) + toCanvasX(p2.x))/2 + 10;
+      const my = (toCanvasY(p1.y) + toCanvasY(p2.y))/2;
+      ctx.font = '13px Segoe UI, monospace';
+      ctx.fillStyle = '#81a1c1';
+      ctx.fillText(eqText, mx, my);
+    }
+  }
+
+  function drawSegment(segment){
+    if(segment.p1Index < 0 || segment.p2Index < 0) return;
+    const p1 = points[segment.p1Index];
+    const p2 = points[segment.p2Index];
+    if(!p1 || !p2) return;
     const x1 = toCanvasX(p1.x);
     const y1 = toCanvasY(p1.y);
     const x2 = toCanvasX(p2.x);
     const y2 = toCanvasY(p2.y);
 
     ctx.beginPath();
-    ctx.strokeStyle = '#81a1c1';
-    ctx.lineWidth = 2;
-    ctx.moveTo(x1,y1);
-    ctx.lineTo(x2,y2);
+    ctx.strokeStyle = '#a3be8c';
+    ctx.lineWidth = 3;
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
     ctx.stroke();
 
-    // Draw equation
+    // Draw equation near midpoint
     const eqText = getLineEquation(p1, p2);
     if(eqText){
-      const mx = (x1 + x2)/2;
-      const my = (y1 + y2)/2;
+      const mx = (x1 + x2)/2 + 10;
+      const my = (y1 + y2)/2 + 15;
       ctx.font = '13px Segoe UI, monospace';
-      ctx.fillStyle = '#81a1c1';
-      ctx.fillText(eqText, mx + 10, my);
+      ctx.fillStyle = '#a3be8c';
+      ctx.fillText(eqText, mx, my);
     }
   }
 
@@ -553,12 +736,14 @@
     drawFunctions();
     polygons.forEach(drawPolygon);
     circles.forEach(drawCircle);
+    segments.forEach(drawSegment);
     lines.forEach(drawLine);
     points.forEach((pt,i)=>{
       const highlight = (
-        mode === 'line' && selectedPointsForLine.includes(i) ||
-        mode === 'circle' && selectedPointsForCircle.includes(i) ||
-        mode === 'polygon' && selectedPointsForPolygon.includes(i) ||
+        (mode === 'line' && selectedPointsForLine.includes(i)) ||
+        (mode === 'circle' && selectedPointsForCircle.includes(i)) ||
+        (mode === 'polygon' && selectedPointsForPolygon.includes(i)) ||
+        (mode === 'segment' && selectedPointsForSegment.includes(i)) ||
         i === selectedPointIndex
       );
       drawPoint(pt, highlight);
@@ -582,14 +767,12 @@
     const cx=(e.clientX || e.touches?.[0]?.clientX)-rect.left;
     const cy=(e.clientY || e.touches?.[0]?.clientY)-rect.top;
 
-    // Support for touch with multiple touches
     if(e.pointerType === 'touch' && e.touches?.length > 1){
       draggingCanvas=true;
       dragStart={x:e.clientX, y:e.clientY, panX:pan.x, panY:pan.y};
       return;
     }
 
-    // Middle mouse button or touch
     if(e.button === 1){
       draggingCanvas=true;
       dragStart={x:e.clientX, y:e.clientY, panX:pan.x, panY:pan.y};
@@ -597,15 +780,10 @@
     }
 
     if(mode === 'point'){
-      points.push({x: toMathX(cx), y: toMathY(cy), label: `P${points.length+1}`});
-      saveHistory();
-      mode=null;
-      updateModeButtons();
-      updateSelectionInfo('');
-      selectPoint(-1);
-      draw();
+      // Disabled adding point by clicking canvas in point mode, only UI form allowed
       return;
     }
+
     if(mode === 'line'){
       const idx=findPointNearCanvas(cx,cy);
       if(idx !==-1 && !selectedPointsForLine.includes(idx)){
@@ -645,6 +823,23 @@
       if(idx !== -1 && !selectedPointsForPolygon.includes(idx)){
         selectedPointsForPolygon.push(idx);
         updateSelectionInfo(`Selected points for polygon: ${selectedPointsForPolygon.length}`);
+        draw();
+      }
+      return;
+    }
+    if(mode === 'segment'){
+      const idx=findPointNearCanvas(cx,cy);
+      if(idx !==-1 && !selectedPointsForSegment.includes(idx)){
+        selectedPointsForSegment.push(idx);
+        updateSelectionInfo(`Selected points for segment: ${selectedPointsForSegment.length}/2`);
+        if(selectedPointsForSegment.length===2){
+          segments.push({p1Index:selectedPointsForSegment[0], p2Index:selectedPointsForSegment[1]});
+          selectedPointsForSegment=[];
+          saveHistory();
+          mode=null;
+          updateModeButtons();
+          updateSelectionInfo('Segment added');
+        }
         draw();
       }
       return;
@@ -756,31 +951,73 @@
     });
   }
 
+  // Point mode: show input form for coordinates
   btnAddPoint.addEventListener('click', () => {
-    mode = (mode === 'point') ? null : 'point';
+    if(mode !== 'point'){
+      mode = 'point';
+      pointInputContainer.style.display = 'flex';
+      pointXInput.value = '';
+      pointYInput.value = '';
+      updateSelectionInfo('Enter coordinates and click "Add Point"');
+    } else {
+      mode = null;
+      pointInputContainer.style.display = 'none';
+      updateSelectionInfo('');
+    }
     selectedPointsForLine = [];
     selectedPointsForCircle = [];
     selectedPointsForPolygon = [];
+    selectedPointsForSegment = [];
     updateModeButtons();
-    updateSelectionInfo(mode === 'point' ? 'Click to add a point' : '');
+  });
+
+  addPointConfirmBtn.addEventListener('click', () => {
+    const x = parseFloat(pointXInput.value);
+    const y = parseFloat(pointYInput.value);
+    if(isNaN(x) || isNaN(y)) {
+      alert('Please enter valid coordinates.');
+      return;
+    }
+    points.push({x, y, label: `P${points.length+1}`});
+    saveHistory();
+    draw();
+    pointXInput.value = '';
+    pointYInput.value = '';
+    updateSelectionInfo('Point added. Enter new coordinates or click "Add Point" to exit.');
   });
 
   btnAddLine.addEventListener('click', () => {
-    mode = (mode === 'line') ? null : 'line';
-    selectedPointsForLine = [];
-    selectedPointsForCircle = [];
-    selectedPointsForPolygon = [];
+    if(mode !== 'line'){
+      mode = 'line';
+      selectedPointsForLine = [];
+      selectedPointsForCircle = [];
+      selectedPointsForPolygon = [];
+      selectedPointsForSegment = [];
+      pointInputContainer.style.display = 'none';
+      updateSelectionInfo('Select two points for the line by clicking them');
+    } else {
+      mode = null;
+      selectedPointsForLine = [];
+      updateSelectionInfo('');
+    }
     updateModeButtons();
-    updateSelectionInfo(mode === 'line' ? 'Select two points for the line by clicking them' : '');
   });
 
   btnAddCircle.addEventListener('click', () => {
-    mode = (mode === 'circle') ? null : 'circle';
-    selectedPointsForCircle = [];
-    selectedPointsForLine = [];
-    selectedPointsForPolygon = [];
+    if(mode !== 'circle'){
+      mode = 'circle';
+      selectedPointsForCircle = [];
+      selectedPointsForLine = [];
+      selectedPointsForPolygon = [];
+      selectedPointsForSegment = [];
+      pointInputContainer.style.display = 'none';
+      updateSelectionInfo('Select two points for the circle by clicking them');
+    } else {
+      mode = null;
+      selectedPointsForCircle = [];
+      updateSelectionInfo('');
+    }
     updateModeButtons();
-    updateSelectionInfo(mode === 'circle' ? 'Select two points for the circle by clicking them' : '');
   });
 
   btnAddPolygon.addEventListener('click', () => {
@@ -794,13 +1031,39 @@
       draw();
       return;
     }
-    mode = (mode === 'polygon') ? null : 'polygon';
-    selectedPointsForPolygon = [];
-    selectedPointsForLine = [];
-    selectedPointsForCircle = [];
+    if(mode !== 'polygon'){
+      mode = 'polygon';
+      selectedPointsForPolygon = [];
+      selectedPointsForLine = [];
+      selectedPointsForCircle = [];
+      selectedPointsForSegment = [];
+      pointInputContainer.style.display = 'none';
+      updateSelectionInfo('Select points for polygon by clicking. Click "Add Polygon" again to finish.');
+    } else {
+      mode = null;
+      selectedPointsForPolygon = [];
+      updateSelectionInfo('');
+    }
     updateModeButtons();
-    updateSelectionInfo(mode === 'polygon' ? 'Select points for polygon by clicking. Click "Add Polygon" again to finish.' : '');
   });
+
+  btnAddSegment.addEventListener('click', () => {
+    if(mode !== 'segment'){
+      mode = 'segment';
+      selectedPointsForSegment = [];
+      selectedPointsForLine = [];
+      selectedPointsForCircle = [];
+      selectedPointsForPolygon = [];
+      pointInputContainer.style.display = 'none';
+      updateSelectionInfo('Select two points for the segment by clicking them');
+    } else {
+      mode = null;
+      selectedPointsForSegment = [];
+      updateSelectionInfo('');
+    }
+    updateModeButtons();
+  });
+
 
   btnUndo.addEventListener('click', () => {
     if(historyIndex > 0){
@@ -821,10 +1084,13 @@
     lines = [];
     circles = [];
     polygons = [];
+    segments = [];
     selectedPointsForLine = [];
     selectedPointsForCircle = [];
     selectedPointsForPolygon = [];
+    selectedPointsForSegment = [];
     mode = null;
+    pointInputContainer.style.display = 'none';
     selectPoint(-1);
     updateModeButtons();
     updateSelectionInfo('Geometry cleared');
@@ -874,7 +1140,7 @@
 
   resetViewBtn.addEventListener('click', () => {
     pan = {x:0, y:0};
-    zoom = 15; // Reset zoom to the lowered initial zoom
+    zoom = 15;
     draw();
   });
 
@@ -892,6 +1158,7 @@
     btnAddLine.setAttribute('aria-pressed', mode==='line'?'true':'false');
     btnAddCircle.setAttribute('aria-pressed', mode==='circle'?'true':'false');
     btnAddPolygon.setAttribute('aria-pressed', mode==='polygon'?'true':'false');
+    btnAddSegment.setAttribute('aria-pressed', mode==='segment'?'true':'false');
   }
 
   function updateSelectionInfo(text){
@@ -906,3 +1173,5 @@
 </body>
 </html>
 
+
+```
