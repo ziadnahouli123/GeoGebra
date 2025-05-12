@@ -21,12 +21,25 @@
 
   header {
     background: #27293d;
-    padding: 0.75em 1em;
+    padding: 1em 1.5em;
     text-align: center;
     font-weight: 700;
-    font-size: 1.5rem;
-    user-select:none;
+    font-size: 2rem;
+    user-select: none;
     border-bottom: 2px solid #444661;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+
+  .logo {
+    width: 160px;
+    height: 100px;
+    position: absolute;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
   }
 
   main {
@@ -216,7 +229,10 @@
 </style>
 </head>
 <body>
-<header>MiniGeo Advanced: Interactive Geometry & Function Plotter</header>
+<header>
+  <img src="logo.png" alt="MiniGeo Logo" class="logo">
+  MiniGeo Advanced: Interactive Geometry & Function Plotter
+</header>
 <main>
   <aside id="sidebar" aria-label="Controls">
     <h2>Geometry Tools</h2>
@@ -396,18 +412,24 @@
     if(!gridToggle.checked) return;
 
     const step = parseFloat(gridSizeInput.value) || 1;
-    const gridColor = '#e5e9f0';
-    const labelColor = '#4c566a';
+    const gridColor = '#e0e0e0';
+    const labelColor = '#333333';
     ctx.lineWidth = 0.5;
 
-    const left = toMathX(0);
-    const right = toMathX(canvas.width/ (window.devicePixelRatio || 1));
-    const bottom = toMathY(canvas.height/ (window.devicePixelRatio || 1));
-    const top = toMathY(0);
+    const left = Math.floor(toMathX(0));
+    const right = Math.ceil(toMathX(canvas.width/ (window.devicePixelRatio || 1)));
+    const bottom = Math.floor(toMathY(canvas.height/ (window.devicePixelRatio || 1)));
+    const top = Math.ceil(toMathY(0));
+
+    // Adjust grid line start/end points to align with step
+    const startX = Math.floor(left/step) * step;
+    const endX = Math.ceil(right/step) * step;
+    const startY = Math.floor(bottom/step) * step;
+    const endY = Math.ceil(top/step) * step;
 
     // Draw minor grid lines
-    ctx.strokeStyle = '#f5f5f5';
-    for(let x = Math.floor(left/step)*step; x <= right; x += step/4){
+    ctx.strokeStyle = '#f0f0f0';
+    for(let x = startX; x <= endX; x += step/4){
       const cx = toCanvasX(x);
       ctx.beginPath();
       ctx.moveTo(cx, 0);
@@ -415,7 +437,7 @@
       ctx.stroke();
     }
     
-    for(let y = Math.floor(bottom/step)*step; y <= top; y += step/4){
+    for(let y = startY; y <= endY; y += step/4){
       const cy = toCanvasY(y);
       ctx.beginPath();
       ctx.moveTo(0, cy);
@@ -430,8 +452,8 @@
     const originX = toCanvasX(0);
     const originY = toCanvasY(0);
     
-    // Draw X-axis numbers
-    for(let x = Math.floor(left/step)*step; x <= right; x += step){
+    // Draw X-axis numbers and major grid lines
+    for(let x = startX; x <= endX; x += step){
       const cx = toCanvasX(x);
       ctx.beginPath();
       ctx.moveTo(cx, 0);
@@ -442,13 +464,13 @@
         ctx.fillStyle = labelColor;
         ctx.font = '11px monospace';
         ctx.textAlign = 'center';
-        // Place X numbers near the X-axis
-        ctx.fillText(Math.round(x), cx, originY + 15);
+        const labelY = Math.min(Math.max(originY + 15, 15), canvas.height/ (window.devicePixelRatio || 1) - 5);
+        ctx.fillText(Math.round(x), cx, labelY);
       }
     }
 
-    // Draw Y-axis numbers
-    for(let y = Math.floor(bottom/step)*step; y <= top; y += step){
+    // Draw Y-axis numbers and major grid lines
+    for(let y = startY; y <= endY; y += step){
       const cy = toCanvasY(y);
       ctx.beginPath();
       ctx.moveTo(0, cy);
@@ -459,14 +481,14 @@
         ctx.fillStyle = labelColor;
         ctx.font = '11px monospace';
         ctx.textAlign = 'right';
-        // Place Y numbers near the Y-axis
-        ctx.fillText(Math.round(y), originX - 5, cy + 4);
+        const labelX = Math.min(Math.max(originX - 5, 35), canvas.width/ (window.devicePixelRatio || 1) - 5);
+        ctx.fillText(Math.round(y), labelX, cy + 4);
       }
     }
 
     // Draw axes
     ctx.lineWidth = 2;
-    ctx.strokeStyle = '#0066ff';
+    ctx.strokeStyle = '#2196F3';
     ctx.beginPath();
     ctx.moveTo(originX, 0);
     ctx.lineTo(originX, canvas.height/ (window.devicePixelRatio || 1));
@@ -478,11 +500,11 @@
     ctx.stroke();
 
     // Draw axis labels
-    ctx.fillStyle = '#0066ff';
+    ctx.fillStyle = '#2196F3';
     ctx.font = 'bold 12px monospace';
     ctx.textAlign = 'right';
-    ctx.fillText('Y', originX - 10, 20);
-    ctx.fillText('X', canvas.width/ (window.devicePixelRatio || 1) - 20, originY - 10);
+    ctx.fillText('Y', Math.min(Math.max(originX - 10, 20), canvas.width/ (window.devicePixelRatio || 1) - 20), 20);
+    ctx.fillText('X', canvas.width/ (window.devicePixelRatio || 1) - 20, Math.min(Math.max(originY - 10, 20), canvas.height/ (window.devicePixelRatio || 1) - 20));
   }
 
   function drawPoint(pt, highlight = false){
