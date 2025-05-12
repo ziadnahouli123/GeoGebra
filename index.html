@@ -107,7 +107,7 @@
     height: 100%;
     width: 100%;
     display: block;
-    background-color: #161624;
+    background-color: #ffffff;
   }
 
   #info {
@@ -306,6 +306,8 @@
   let zoom = 15;
   let draggingCanvas = false;
   let dragStart = null;
+  let longPressTimeout = null;
+  let isLongPress = false;
 
   const history = [];
   let historyIndex = -1;
@@ -394,48 +396,77 @@
     if(!gridToggle.checked) return;
 
     const step = parseFloat(gridSizeInput.value) || 1;
-    const gridColor = '#3b4252';
+    const gridColor = '#e5e9f0';
     const labelColor = '#4c566a';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 0.5;
 
     const left = toMathX(0);
     const right = toMathX(canvas.width/ (window.devicePixelRatio || 1));
     const bottom = toMathY(canvas.height/ (window.devicePixelRatio || 1));
     const top = toMathY(0);
 
-    for(let x = Math.floor(left/step)*step; x <= right; x += step){
+    // Draw minor grid lines
+    ctx.strokeStyle = '#f5f5f5';
+    for(let x = Math.floor(left/step)*step; x <= right; x += step/4){
       const cx = toCanvasX(x);
       ctx.beginPath();
-      ctx.strokeStyle = gridColor;
       ctx.moveTo(cx, 0);
       ctx.lineTo(cx, canvas.height/ (window.devicePixelRatio || 1));
       ctx.stroke();
-      if(Math.abs(x) > 1e-6){
-        ctx.fillStyle = labelColor;
-        ctx.font = '10px Segoe UI, monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(x.toFixed(2), cx, canvas.height/2/ (window.devicePixelRatio || 1) + 12);
-      }
     }
-
-    for(let y = Math.floor(bottom/step)*step; y <= top; y += step){
+    
+    for(let y = Math.floor(bottom/step)*step; y <= top; y += step/4){
       const cy = toCanvasY(y);
       ctx.beginPath();
-      ctx.strokeStyle = gridColor;
       ctx.moveTo(0, cy);
       ctx.lineTo(canvas.width/ (window.devicePixelRatio || 1), cy);
       ctx.stroke();
-      if(Math.abs(y) > 1e-6){
-        ctx.fillStyle = labelColor;
-        ctx.font = '10px Segoe UI, monospace';
-        ctx.textAlign = 'right';
-        ctx.fillText(y.toFixed(2), canvas.width/2/ (window.devicePixelRatio || 1) - 6, cy + 3);
-      }
     }
+
+    // Draw major grid lines and numbers
+    ctx.strokeStyle = gridColor;
+    ctx.lineWidth = 1;
+
     const originX = toCanvasX(0);
     const originY = toCanvasY(0);
+    
+    // Draw X-axis numbers
+    for(let x = Math.floor(left/step)*step; x <= right; x += step){
+      const cx = toCanvasX(x);
+      ctx.beginPath();
+      ctx.moveTo(cx, 0);
+      ctx.lineTo(cx, canvas.height/ (window.devicePixelRatio || 1));
+      ctx.stroke();
+      
+      if(Math.abs(x) > 1e-6){
+        ctx.fillStyle = labelColor;
+        ctx.font = '11px monospace';
+        ctx.textAlign = 'center';
+        // Place X numbers near the X-axis
+        ctx.fillText(Math.round(x), cx, originY + 15);
+      }
+    }
+
+    // Draw Y-axis numbers
+    for(let y = Math.floor(bottom/step)*step; y <= top; y += step){
+      const cy = toCanvasY(y);
+      ctx.beginPath();
+      ctx.moveTo(0, cy);
+      ctx.lineTo(canvas.width/ (window.devicePixelRatio || 1), cy);
+      ctx.stroke();
+      
+      if(Math.abs(y) > 1e-6){
+        ctx.fillStyle = labelColor;
+        ctx.font = '11px monospace';
+        ctx.textAlign = 'right';
+        // Place Y numbers near the Y-axis
+        ctx.fillText(Math.round(y), originX - 5, cy + 4);
+      }
+    }
+
+    // Draw axes
     ctx.lineWidth = 2;
-    ctx.strokeStyle = '#d8dee9';
+    ctx.strokeStyle = '#0066ff';
     ctx.beginPath();
     ctx.moveTo(originX, 0);
     ctx.lineTo(originX, canvas.height/ (window.devicePixelRatio || 1));
@@ -445,6 +476,13 @@
     ctx.moveTo(0, originY);
     ctx.lineTo(canvas.width/ (window.devicePixelRatio || 1), originY);
     ctx.stroke();
+
+    // Draw axis labels
+    ctx.fillStyle = '#0066ff';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('Y', originX - 10, 20);
+    ctx.fillText('X', canvas.width/ (window.devicePixelRatio || 1) - 20, originY - 10);
   }
 
   function drawPoint(pt, highlight = false){
@@ -1153,6 +1191,80 @@
   canvas.addEventListener('pointercancel', onPointerUp);
   canvas.addEventListener('wheel', onWheel, {passive:false});
 
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button === 0) { // Left click
+      longPressTimeout = setTimeout(() => {
+        isLongPress = true;
+        draggingCanvas = true;
+        dragStart = { x: e.clientX, y: e.clientY };
+        canvas.style.cursor = 'grabbing';
+      }, 500); // 500ms for long press
+    }
+  });
+
+  canvas.addEventListener('mousemove', (e) => {
+    if (draggingCanvas && isLongPress) {
+      const dx = e.clientX - dragStart.x;
+      const dy = e.clientY - dragStart.y;
+      pan.x += dx/zoom;
+      pan.y -= dy/zoom;
+      dragStart = { x: e.clientX, y: e.clientY };
+      draw();
+    }
+  });
+
+  canvas.addEventListener('mouseup', () => {
+    clearTimeout(longPressTimeout);
+    draggingCanvas = false;
+    isLongPress = false;
+    canvas.style.cursor = 'default';
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    clearTimeout(longPressTimeout);
+    draggingCanvas = false;
+    isLongPress = false;
+    canvas.style.cursor = 'default';
+  });
+
+  canvas.addEventListener('click', (e) => {
+    if (isLongPress) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (window.devicePixelRatio || 1);
+    const y = (e.clientY - rect.top) * (window.devicePixelRatio || 1);
+    const mathX = toMathX(x);
+    const mathY = toMathY(y);
+
+    if (mode === 'line' || mode === 'segment') {
+      const clickedPointIndex = findPointNear(mathX, mathY);
+      if (clickedPointIndex >= 0) {
+        if (mode === 'line') {
+          selectedPointsForLine.push(clickedPointIndex);
+          if (selectedPointsForLine.length === 2) {
+            lines.push({
+              p1Index: selectedPointsForLine[0],
+              p2Index: selectedPointsForLine[1]
+            });
+            selectedPointsForLine = [];
+            saveHistory();
+          }
+        } else if (mode === 'segment') {
+          selectedPointsForSegment.push(clickedPointIndex);
+          if (selectedPointsForSegment.length === 2) {
+            segments.push({
+              p1Index: selectedPointsForSegment[0],
+              p2Index: selectedPointsForSegment[1]
+            });
+            selectedPointsForSegment = [];
+            saveHistory();
+          }
+        }
+        draw();
+      }
+    }
+  });
+
   function updateModeButtons(){
     btnAddPoint.setAttribute('aria-pressed', mode==='point'?'true':'false');
     btnAddLine.setAttribute('aria-pressed', mode==='line'?'true':'false');
@@ -1172,6 +1284,3 @@
 </script>
 </body>
 </html>
-
-
-```
