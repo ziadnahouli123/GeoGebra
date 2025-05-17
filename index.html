@@ -19,6 +19,17 @@
     flex-direction: column;
   }
 
+  .made-by {
+    position: absolute;
+    top: 10px;
+    right: 10px; /* Changed from left to right */
+    color: #ffffff; /* Light green, or choose another contrasting color */
+    font-size: 0.9rem;
+    font-weight: 500;
+    user-select: none;
+    z-index: 500; /* Ensure it's above other elements if needed */
+  }
+
   header {
     background: #27293d;
     padding: 1em 1.5em;
@@ -229,6 +240,7 @@
 </style>
 </head>
 <body>
+<div class="made-by">Made By Ziad Nahouli</div>
 <header>
   <img src="logo.png" alt="MiniGeo Logo" class="logo">
   MiniGeo Advanced: Interactive Geometry & Function Plotter
